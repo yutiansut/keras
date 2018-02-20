@@ -3,6 +3,7 @@ from __future__ import print_function
 import pytest
 import os
 import numpy as np
+from numpy.testing import assert_allclose
 
 from keras import backend as K
 import keras
@@ -60,7 +61,7 @@ def _get_test_data():
                                                          num_test=test_samples,
                                                          input_shape=(input_dim,),
                                                          classification=True,
-                                                         num_classes=4)
+                                                         num_classes=num_classes)
     y_test = np_utils.to_categorical(y_test)
     y_train = np_utils.to_categorical(y_train)
     return (x_train, y_train), (x_test, y_test)
@@ -258,6 +259,26 @@ def test_sequential_count_params():
 
 
 @keras_test
+def test_nested_sequential_trainability():
+    input_dim = 20
+    num_units = 10
+    num_classes = 2
+
+    inner_model = Sequential()
+    inner_model.add(Dense(num_units, input_shape=(input_dim,)))
+
+    model = Sequential()
+    model.add(inner_model)
+    model.add(Dense(num_classes))
+
+    assert len(model.trainable_weights) == 4
+    inner_model.trainable = False
+    assert len(model.trainable_weights) == 2
+    inner_model.trainable = True
+    assert len(model.trainable_weights) == 4
+
+
+@keras_test
 def test_rebuild_model():
     model = Sequential()
     model.add(Dense(128, input_shape=(784,)))
@@ -276,11 +297,12 @@ def test_clone_functional_model():
 
     input_a = keras.Input(shape=(4,))
     input_b = keras.Input(shape=(4,))
-    dense_1 = keras.layers.Dense(4,)
-    dense_2 = keras.layers.Dense(4,)
+    dense_1 = keras.layers.Dense(4)
+    dense_2 = keras.layers.Dense(4)
 
     x_a = dense_1(input_a)
     x_a = keras.layers.Dropout(0.5)(x_a)
+    x_a = keras.layers.BatchNormalization()(x_a)
     x_b = dense_1(input_b)
     x_a = dense_2(x_a)
     outputs = keras.layers.add([x_a, x_b])
@@ -319,6 +341,7 @@ def test_clone_sequential_model():
 
     model = keras.models.Sequential()
     model.add(keras.layers.Dense(4, input_shape=(4,)))
+    model.add(keras.layers.BatchNormalization())
     model.add(keras.layers.Dropout(0.5))
     model.add(keras.layers.Dense(4))
 
@@ -344,6 +367,36 @@ def test_clone_sequential_model():
         model, input_tensors=input_a)
     new_model.compile('rmsprop', 'mse')
     new_model.train_on_batch(None, val_out)
+
+
+@keras_test
+def test_sequential_update_disabling():
+    val_a = np.random.random((10, 4))
+    val_out = np.random.random((10, 4))
+
+    model = keras.models.Sequential()
+    model.add(keras.layers.BatchNormalization(input_shape=(4,)))
+
+    model.trainable = False
+    assert not model.updates
+
+    model.compile('sgd', 'mse')
+    assert not model.updates
+    assert not model.model.updates
+
+    x1 = model.predict(val_a)
+    model.train_on_batch(val_a, val_out)
+    x2 = model.predict(val_a)
+    assert_allclose(x1, x2, atol=1e-7)
+
+    model.trainable = True
+    model.compile('sgd', 'mse')
+    assert model.updates
+    assert model.model.updates
+
+    model.train_on_batch(val_a, val_out)
+    x2 = model.predict(val_a)
+    assert np.abs(np.sum(x1 - x2)) > 1e-5
 
 
 if __name__ == '__main__':

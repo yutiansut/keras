@@ -17,6 +17,11 @@ from keras.utils.test_utils import get_test_data
 from keras.utils.test_utils import keras_test
 from keras import backend as K
 from keras.utils import np_utils
+try:
+    from unittest.mock import patch
+except:
+    from mock import patch
+
 
 input_dim = 2
 num_hidden = 4
@@ -193,12 +198,12 @@ def test_ModelCheckpoint(tmpdir):
                                       period=period)]
     model.fit(X_train, y_train, batch_size=batch_size,
               validation_data=(X_test, y_test), callbacks=cbks, epochs=4)
-    assert os.path.isfile(filepath.format(epoch=1))
-    assert os.path.isfile(filepath.format(epoch=3))
-    assert not os.path.exists(filepath.format(epoch=0))
-    assert not os.path.exists(filepath.format(epoch=2))
-    os.remove(filepath.format(epoch=1))
-    os.remove(filepath.format(epoch=3))
+    assert os.path.isfile(filepath.format(epoch=2))
+    assert os.path.isfile(filepath.format(epoch=4))
+    assert not os.path.exists(filepath.format(epoch=1))
+    assert not os.path.exists(filepath.format(epoch=3))
+    os.remove(filepath.format(epoch=2))
+    os.remove(filepath.format(epoch=4))
     assert not tmpdir.listdir()
 
 
@@ -247,12 +252,12 @@ def test_EarlyStopping_reuse():
     stopper = callbacks.EarlyStopping(monitor='acc', patience=patience)
     weights = model.get_weights()
 
-    hist = model.fit(data, labels, callbacks=[stopper])
+    hist = model.fit(data, labels, callbacks=[stopper], epochs=20)
     assert len(hist.epoch) >= patience
 
     # This should allow training to go for at least `patience` epochs
     model.set_weights(weights)
-    hist = model.fit(data, labels, callbacks=[stopper])
+    hist = model.fit(data, labels, callbacks=[stopper], epochs=20)
     assert len(hist.epoch) >= patience
 
 
@@ -398,8 +403,6 @@ def test_CSVLogger(tmpdir):
 
 
 @keras_test
-@pytest.mark.skipif((K.backend() != 'tensorflow'),
-                    reason='Requires TensorFlow backend')
 def test_TensorBoard(tmpdir):
     np.random.seed(np.random.randint(1, 1e7))
     filepath = str(tmpdir / 'logs')
@@ -546,8 +549,6 @@ def test_TensorBoard_histogram_freq_must_have_validation_data(tmpdir):
 
 
 @keras_test
-@pytest.mark.skipif((K.backend() != 'tensorflow'),
-                    reason='Requires TensorFlow backend')
 def test_TensorBoard_multi_input_output(tmpdir):
     np.random.seed(np.random.randint(1, 1e7))
     filepath = str(tmpdir / 'logs')
@@ -623,8 +624,6 @@ def test_TensorBoard_multi_input_output(tmpdir):
 
 
 @keras_test
-@pytest.mark.skipif((K.backend() != 'tensorflow'),
-                    reason='Requires TensorFlow backend')
 def test_TensorBoard_convnet(tmpdir):
     np.random.seed(np.random.randint(1, 1e7))
     filepath = str(tmpdir / 'logs')
@@ -634,7 +633,7 @@ def test_TensorBoard_convnet(tmpdir):
                                                          num_test=200,
                                                          input_shape=input_shape,
                                                          classification=True,
-                                                         num_classes=4)
+                                                         num_classes=num_classes)
     y_train = np_utils.to_categorical(y_train)
     y_test = np_utils.to_categorical(y_test)
 
@@ -646,7 +645,7 @@ def test_TensorBoard_convnet(tmpdir):
         Conv2D(filters=4, kernel_size=(3, 3),
                activation='relu', padding='same'),
         GlobalAveragePooling2D(),
-        Dense(y_test.shape[-1], activation='softmax')
+        Dense(num_classes, activation='softmax')
     ])
     model.compile(loss='categorical_crossentropy',
                   optimizer='rmsprop',
@@ -748,8 +747,6 @@ def test_LambdaCallback():
 
 
 @keras_test
-@pytest.mark.skipif((K.backend() != 'tensorflow'),
-                    reason="Requires TensorFlow backend")
 def test_TensorBoard_with_ReduceLROnPlateau(tmpdir):
     import shutil
     np.random.seed(np.random.randint(1, 1e7))
@@ -785,6 +782,28 @@ def test_TensorBoard_with_ReduceLROnPlateau(tmpdir):
     assert os.path.isdir(filepath)
     shutil.rmtree(filepath)
     assert not tmpdir.listdir()
+
+
+@keras_test
+def tests_RemoteMonitor():
+    (X_train, y_train), (X_test, y_test) = get_test_data(num_train=train_samples,
+                                                         num_test=test_samples,
+                                                         input_shape=(input_dim,),
+                                                         classification=True,
+                                                         num_classes=num_classes)
+    y_test = np_utils.to_categorical(y_test)
+    y_train = np_utils.to_categorical(y_train)
+    model = Sequential()
+    model.add(Dense(num_hidden, input_dim=input_dim, activation='relu'))
+    model.add(Dense(num_classes, activation='softmax'))
+    model.compile(loss='categorical_crossentropy',
+                  optimizer='rmsprop',
+                  metrics=['accuracy'])
+    cbks = [callbacks.RemoteMonitor()]
+
+    with patch('requests.post'):
+        model.fit(X_train, y_train, batch_size=batch_size,
+                  validation_data=(X_test, y_test), callbacks=cbks, epochs=1)
 
 
 if __name__ == '__main__':
